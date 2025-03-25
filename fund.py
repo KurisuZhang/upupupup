@@ -37,7 +37,9 @@ def fetch_fund_data(fund_codes):
     for code in fund_codes:
         url = base_url.format(code)
         try:
+            print("开始请求 {}".format(url))
             response = requests.get(url)
+            print("请求结束 {}".format(url))
             if response.status_code == 200:
                 match = pattern.search(response.text)
                 if match:
@@ -61,6 +63,7 @@ server_key = os.environ.get("SERVER_KEY")
 # 示例基金代码列表
 fund_list = ["020670", "016942", "159934"]
 # 获取所有基金信息的内容
+print("开始爬虫")
 all_messages = fetch_fund_data(fund_list)
 # 使用 sendkey "123456" 推送一次所有的内容
 result = sc_send("server_key", "基金数据推送", all_messages)
