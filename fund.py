@@ -1,6 +1,6 @@
 import requests
 import re
-
+import os
 
 def sc_send(sendkey, title, desp='', options=None):
     if options is None:
@@ -56,10 +56,12 @@ def fetch_fund_data(fund_codes):
     return "  ".join(messages)
 
 
+# 读取环境变量 SERVER_KEY
+server_key = os.environ.get("SERVER_KEY")
 # 示例基金代码列表
 fund_list = ["020670", "016942", "159934"]
 # 获取所有基金信息的内容
 all_messages = fetch_fund_data(fund_list)
 # 使用 sendkey "123456" 推送一次所有的内容
-result = sc_send("SCT4401TgEUknsi92Gxus8cuwvzAPVDf", "基金数据推送", all_messages)
+result = sc_send("server_key", "基金数据推送", all_messages)
 print(result)
