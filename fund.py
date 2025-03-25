@@ -42,7 +42,9 @@ def fetch_fund_data(fund_codes):
                 match = pattern.search(response.text)
                 if match:
                     data = eval(match.group(1))  # 将 JSON 字符串转换为字典
-                    messages.append(f"基金: {data['name']}, 估值: {data['gszzl']}%")
+                    color = "red" if float(data['gszzl']) > 0 else "green"
+                    messages.append(
+                        f"- **基金**: {data['name']}, **估值**: <span style='color:{color};'>{data['gszzl']}%</span>")
                 else:
                     messages.append(f"基金 {code} 数据解析失败")
             else:
@@ -51,7 +53,7 @@ def fetch_fund_data(fund_codes):
             messages.append(f"基金 {code} 请求异常: {e}")
 
     # 将所有消息合并成一个字符串，以换行分隔
-    return "\n".join(messages)
+    return "  ".join(messages)
 
 
 # 示例基金代码列表
