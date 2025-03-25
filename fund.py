@@ -37,16 +37,17 @@ def fetch_fund_data(fund_codes):
     for code in fund_codes:
         url = base_url.format(code)
         try:
-            print("开始请求 {}".format(url))
+            print(f"开始请求 {url}")
             response = requests.get(url)
-            print("请求结束 {}".format(url))
+            print(f"请求结束 {url}")
             if response.status_code == 200:
                 match = pattern.search(response.text)
                 if match:
                     data = eval(match.group(1))  # 将 JSON 字符串转换为字典
-                    color = "red" if float(data['gszzl']) > 0 else "green"
-                    messages.append(
-                        f"- **基金**: {data['name']}, **估值**: <span style='color:{color};'>{data['gszzl']}%</span>")
+                    gszzl = float(data['gszzl'])
+                    emoji = "📈" if gszzl > 0 else "📉" if gszzl < 0 else ""
+                    gszzl_text = f"**{data['gszzl']}**" if abs(gszzl) > 1 else data['gszzl']
+                    messages.append(f"- **基金**: {data['name']}, **估值**: {emoji} {gszzl_text}% ")
                 else:
                     messages.append(f"基金 {code} 数据解析失败")
             else:
@@ -55,7 +56,7 @@ def fetch_fund_data(fund_codes):
             messages.append(f"基金 {code} 请求异常: {e}")
 
     # 将所有消息合并成一个字符串，以换行分隔
-    return "  ".join(messages)
+    return "  \n".join(messages)
 
 
 # 读取环境变量 SERVER_KEY
