@@ -1,0 +1,31 @@
+name: Run Python Script
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '40 6 * * 1-5'  # 每个工作日北京时间 14:40 运行
+
+jobs:
+  run-python:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10'  # 或指定具体版本，如 '3.9'
+
+      - name: Check Python version
+        run: python --version
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Python script
+        run: python fund.py
