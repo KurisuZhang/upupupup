@@ -66,5 +66,6 @@ fund_list = ["020670", "016942", "159934"]
 print("开始爬虫")
 all_messages = fetch_fund_data(fund_list)
 # 使用 sendkey "123456" 推送一次所有的内容
-result = sc_send("server_key", "基金数据推送", all_messages)
+server_key = os.environ.get("SERVER_KEY")
+result = sc_send(server_key, "基金数据推送", all_messages)
 print(result)
