@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '40 6 * * 1-5'  # 每个工作日北京时间 14:40 运行
+    - cron: '30 6 * * 1-5'  # 每个工作日北京时间 14:40 运行
 
 jobs:
   run-python:
