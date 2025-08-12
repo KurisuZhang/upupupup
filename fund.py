@@ -94,19 +94,39 @@ def fetch_fund_data(fund_codes):
             results.append(future.result())
     return results
 
-# ===== 格式化推送消息 =====
 def format_messages(funds):
     # 按涨跌幅降序
     funds_sorted = sorted(funds, key=lambda x: x.get("gszzl", 0) or 0, reverse=True)
-    messages = []
+
+    # 去掉了“估值”列
+    table_header = "| 基金名称 | 代码 | 涨跌幅 |\n|---|---|---|"
+    table_rows = []
+    error_rows = []
+
     for f in funds_sorted:
         if "error" in f:
-            messages.append(f"- 基金 {f['code']}: ❌ {f['error']}")
+            error_rows.append(f"❌ **基金 {f['code']}**: {f['error']}")
         else:
-            emoji = "📈" if f["gszzl"] > 0 else ("📉" if f["gszzl"] < 0 else "➖")
-            gszzl_text = f"**{f['gszzl']}**" if abs(f['gszzl']) > 1 else f"{f['gszzl']}"
-            messages.append(f"- **{f['name']}** ({f['code']}): {emoji} {gszzl_text}%")
-    return "  \n".join(messages)
+            gszzl = f["gszzl"]
+            
+            # 用 Emoji 来模拟颜色：🟢 绿色跌，🔴 红色涨，⚪ 灰色平
+            if gszzl > 0:
+                gszzl_text = f"🔴 +{gszzl:.2f}%"
+            elif gszzl < 0:
+                gszzl_text = f"🟢 {gszzl:.2f}%"
+            else:
+                gszzl_text = f"⚪ {gszzl:.2f}%"
+
+            # 移除了原先代表“估值”的 emoji
+            table_rows.append(f"| **{f['name']}** | `{f['code']}` | {gszzl_text} |")
+
+    # 拼接 Markdown 内容
+    msg_parts = [table_header] + table_rows
+    if error_rows:
+        msg_parts.append("\n**获取失败的基金：**")
+        msg_parts.extend(error_rows)
+
+    return "\n".join(msg_parts)
 
 # ===== 主程序 =====
 if __name__ == "__main__":
