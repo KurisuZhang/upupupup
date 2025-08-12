@@ -146,7 +146,7 @@ if not server_key:
     exit(1) # 或者 server_key = "YOUR_DEFAULT_KEY"
 
 # 示例基金代码列表
-fund_list = ["020670", "016942", "159934"] # 你的基金代码
+fund_list = ["020670", "016942", "159934", "011609", "005693"] # 你的基金代码
 
 print("--- 开始获取基金数据 ---")
 all_messages = fetch_fund_data(fund_list)
