@@ -6,7 +6,7 @@ on:
       - main
   schedule:
     # 每个工作日北京时间 14:40 运行（UTC 时间为 06:40）
-    - cron: '40 6 * * 1-5'
+    - cron: '30 6 * * 1-5'
   workflow_dispatch: # 手动触发
 
 jobs:
