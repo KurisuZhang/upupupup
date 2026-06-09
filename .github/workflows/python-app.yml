@@ -8,26 +8,25 @@ on:
     # 北京时间 12:00 / 13:00 / 14:30（UTC 04:00 / 05:00 / 06:30），工作日
     - cron: '0 4 * * 1-5'
     - cron: '0 5 * * 1-5'
-    - cron: '30 6 * * 1-5'
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
 
 jobs:
   run-fund-script:
     runs-on: ubuntu-latest
     env:
       SERVER_KEY: ${{ secrets.SERVER_KEY }}
+      # Opt into Node 24 now to silence warnings and test compatibility
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # v4 is generally compatible, but keep an eye for v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+        uses: actions/setup-python@v5 # v5 supports Node 20/24
 
       - name: Cache pip dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4 # Upgraded from v3 to v4 for better Node support
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
