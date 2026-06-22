@@ -6,8 +6,8 @@ on:
       - main
   schedule:
     # 北京时间 12:00 / 13:00 / 14:30（UTC 04:00 / 05:00 / 06:30），工作日
-    - cron: '0 4 * * 1-5'
-    - cron: '0 5 * * 1-5'
+    - cron: '12 5 * * 1-5'
+    - cron: '13 6 * * 1-5'
   workflow_dispatch:
 
 jobs:
