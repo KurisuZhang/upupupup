@@ -255,10 +255,6 @@ def fmt_change(value):
     return f"⚪ {value:.2f}%"
 
 
-def fmt_nav(value):
-    return "—" if value is None else f"{value:.4f}"
-
-
 def fmt_table(title, funds):
     # 有估值的排在前面，再按估算涨跌幅降序排列。
     rows = sorted(
@@ -271,19 +267,16 @@ def fmt_table(title, funds):
     )
     lines = [
         f"### {title}",
-        "| 名称 | 代码 | 估值涨跌 | 估算净值 | 最新净值 | 估值时间 | 来源 |",
-        "|---|---|---:|---:|---:|---|---|",
+        "| 名称 | 代码 | 估值涨跌 | 估值时间 |",
+        "|---|---|---:|---|",
     ]
     for fund in rows:
         lines.append(
-            "| **{name}** | `{code}` | {change} | {gsz} | {dwjz} | {time} | {source} |".format(
+            "| **{name}** | `{code}` | {change} | {time} |".format(
                 name=fund["name"],
                 code=fund["code"],
                 change=fmt_change(fund["gszzl"]),
-                gsz=fmt_nav(fund["gsz"]),
-                dwjz=fmt_nav(fund["dwjz"]),
                 time=fund["gztime"] or fund["jzrq"] or "—",
-                source=fund["source"],
             )
         )
     return "\n".join(lines)
