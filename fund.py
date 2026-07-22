@@ -39,15 +39,52 @@ def push(sendkey, title, content):
 # --- 基金数据获取（天天基金 JSONP） ---
 def fetch_one(code):
     try:
-        r = session.get(f"https://fundgz.1234567.com.cn/js/{code}.js", timeout=TIMEOUT)
+        url = f"https://fundgz.1234567.com.cn/js/{code}.js"
+
+        r = session.get(
+            url,
+            params={"rt": int(time.time() * 1000)},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/150.0.0.0 Safari/537.36"
+                ),
+                "Referer": f"https://fund.eastmoney.com/{code}.html",
+                "Accept": "*/*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            },
+            timeout=TIMEOUT,
+        )
+
         r.raise_for_status()
+
+        logging.info(
+            "基金 %s: status=%s, type=%s, url=%s, body=%r",
+            code,
+            r.status_code,
+            r.headers.get("Content-Type"),
+            r.url,
+            r.text[:300],
+        )
+
         m = JSONP_RE.search(r.text)
         if not m:
-            return {"code": code, "error": "数据格式异常"}
+            return {
+                "code": code,
+                "error": f"非JSONP响应: {r.text[:120]!r}",
+            }
+
         d = json.loads(m.group(1))
-        return {"code": code, "name": d["name"], "gszzl": float(d.get("gszzl", 0))}
+
+        return {
+            "code": code,
+            "name": d["name"],
+            "gszzl": float(d.get("gszzl") or 0),
+        }
+
     except Exception as e:
-        return {"code": code, "error": str(e)}
+        return {"code": code, "error": f"{type(e).__name__}: {e}"}
 
 
 def fetch_funds(codes):
