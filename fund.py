@@ -1,10 +1,7 @@
-import json
 import logging
 import os
-import random
 import re
-import time
-from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -21,15 +18,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-TIMEOUT = 15
-
-# 兼容：
-# jsonpgz({...});
-# jsonpgz ( {...} )
-JSONP_RE = re.compile(
-    r"jsonpgz\s*\(\s*(\{.*?\})\s*\)\s*;?",
-    re.DOTALL,
-)
+TIMEOUT = 20
 
 
 # ============================================================
@@ -48,25 +37,18 @@ FUNDS = {
 # HTTP Session
 # ============================================================
 
-def create_fund_session():
-    """
-    创建基金数据请求 Session。
-
-    每个线程单独创建 Session，避免多个线程共享同一个 Session
-    可能产生的线程安全问题。
-    """
+def create_session():
     session = requests.Session()
 
     session.headers.update({
         "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "Mozilla/5.0 (Linux; Android 13) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/150.0.0.0 Safari/537.36"
+            "Chrome/150.0.0.0 Mobile Safari/537.36"
         ),
-        "Accept": "*/*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9",
         "Referer": "https://fund.eastmoney.com/",
-        "Connection": "keep-alive",
     })
 
     retry = Retry(
@@ -76,7 +58,7 @@ def create_fund_session():
         status=3,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=frozenset(["GET"]),
+        allowed_methods=frozenset(["GET", "POST"]),
         raise_on_status=False,
     )
 
@@ -92,22 +74,23 @@ def create_fund_session():
     return session
 
 
+session = create_session()
+
+
 # ============================================================
 # Server 酱推送
 # ============================================================
 
 def push(sendkey, title, content):
-    """
-    推送消息到 Server 酱。
-    """
     if sendkey.startswith("sctp"):
         match = re.match(r"sctp(\d+)t", sendkey)
 
         if not match:
-            logging.error("无效的 Turbo sendkey: %s", sendkey)
+            logging.error("无效的 Server酱 Turbo SendKey")
             return None
 
         server_number = match.group(1)
+
         url = (
             f"https://{server_number}.push.ft07.com/"
             f"send/{sendkey}.send"
@@ -116,15 +99,11 @@ def push(sendkey, title, content):
         url = f"https://sctapi.ftqq.com/{sendkey}.send"
 
     try:
-        response = requests.post(
+        response = session.post(
             url,
             json={
                 "title": title,
                 "desp": content,
-            },
-            headers={
-                "User-Agent": "Mozilla/5.0",
-                "Content-Type": "application/json",
             },
             timeout=TIMEOUT,
         )
@@ -132,236 +111,223 @@ def push(sendkey, title, content):
         response.raise_for_status()
 
         try:
-            result = response.json()
+            return response.json()
         except ValueError:
             logging.error(
-                "Server酱返回的不是 JSON，响应内容: %r",
+                "Server酱返回非 JSON 内容：%r",
                 response.text[:300],
             )
             return None
 
-        return result
-
     except requests.RequestException as exc:
-        logging.error("Server酱推送请求失败: %s", exc)
+        logging.error("Server酱推送请求失败：%s", exc)
         return None
 
     except Exception as exc:
-        logging.exception("Server酱推送出现未知异常: %s", exc)
+        logging.exception("Server酱推送异常：%s", exc)
         return None
 
 
 # ============================================================
-# 基金数据获取
+# 基金净值获取
 # ============================================================
-
-def fetch_one(code):
-    """
-    获取单只基金的实时估值数据。
-
-    对 HTTP 200 但正文不是 JSONP 的情况额外重试。
-    """
-    url = f"https://fundgz.1234567.com.cn/js/{code}.js"
-    last_error = "未知错误"
-
-    for attempt in range(1, 4):
-        session = None
-
-        try:
-            session = create_fund_session()
-
-            response = session.get(
-                url,
-                params={
-                    # 防止 CDN 缓存
-                    "rt": int(time.time() * 1000),
-                },
-                headers={
-                    "Referer": f"https://fund.eastmoney.com/{code}.html",
-                },
-                timeout=TIMEOUT,
-                allow_redirects=True,
-            )
-
-            response.raise_for_status()
-
-            text = response.text.strip()
-            content_type = response.headers.get("Content-Type", "")
-
-            if not text:
-                last_error = (
-                    f"接口返回空内容，status={response.status_code}, "
-                    f"type={content_type}"
-                )
-
-                logging.warning(
-                    "基金 %s 第 %d 次获取失败：%s",
-                    code,
-                    attempt,
-                    last_error,
-                )
-
-            else:
-                match = JSONP_RE.search(text)
-
-                if not match:
-                    body_preview = (
-                        text[:300]
-                        .replace("\r", " ")
-                        .replace("\n", " ")
-                    )
-
-                    last_error = (
-                        f"非JSONP响应，status={response.status_code}, "
-                        f"type={content_type}, "
-                        f"body={body_preview!r}"
-                    )
-
-                    logging.warning(
-                        "基金 %s 第 %d 次响应格式异常：%s",
-                        code,
-                        attempt,
-                        last_error,
-                    )
-
-                else:
-                    data = json.loads(match.group(1))
-
-                    if not isinstance(data, dict):
-                        raise ValueError(
-                            f"JSONP 内部数据不是对象: {type(data).__name__}"
-                        )
-
-                    name = data.get("name")
-                    gszzl = data.get("gszzl")
-
-                    if not name:
-                        raise ValueError(
-                            f"响应缺少基金名称，原始数据: {data}"
-                        )
-
-                    if gszzl in (None, ""):
-                        raise ValueError(
-                            f"响应缺少估算涨跌幅，原始数据: {data}"
-                        )
-
-                    try:
-                        change = float(gszzl)
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError(
-                            f"涨跌幅无法转换成数字: {gszzl!r}"
-                        ) from exc
-
-                    logging.info(
-                        "基金获取成功：%s %s，估算涨跌幅 %.2f%%",
-                        code,
-                        name,
-                        change,
-                    )
-
-                    return {
-                        "code": code,
-                        "name": name,
-                        "gszzl": change,
-                        "gztime": data.get("gztime"),
-                        "dwjz": data.get("dwjz"),
-                        "gsz": data.get("gsz"),
-                    }
-
-        except requests.Timeout:
-            last_error = f"请求超时，timeout={TIMEOUT}s"
-
-            logging.warning(
-                "基金 %s 第 %d 次请求超时",
-                code,
-                attempt,
-            )
-
-        except requests.RequestException as exc:
-            last_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
-
-            logging.warning(
-                "基金 %s 第 %d 次网络请求失败：%s",
-                code,
-                attempt,
-                last_error,
-            )
-
-        except json.JSONDecodeError as exc:
-            last_error = (
-                f"JSON解析失败: {exc}"
-            )
-
-            logging.warning(
-                "基金 %s 第 %d 次 JSON 解析失败：%s",
-                code,
-                attempt,
-                exc,
-            )
-
-        except Exception as exc:
-            last_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
-
-            logging.warning(
-                "基金 %s 第 %d 次处理失败：%s",
-                code,
-                attempt,
-                last_error,
-            )
-
-        finally:
-            if session is not None:
-                session.close()
-
-        if attempt < 3:
-            # 避免所有线程在同一时刻重新请求
-            sleep_seconds = random.uniform(1.5, 3.0) * attempt
-
-            logging.info(
-                "基金 %s 将在 %.1f 秒后重试",
-                code,
-                sleep_seconds,
-            )
-
-            time.sleep(sleep_seconds)
-
-    return {
-        "code": code,
-        "error": last_error,
-    }
-
 
 def fetch_funds(codes):
     """
-    并发获取多只基金。
+    批量获取基金最新已公布净值。
 
-    降低到两个并发，减少触发接口风控的概率。
+    注意：
+    这里获取的是基金公司已经公布的净值，
+    不是交易时段内的实时估算净值。
     """
-    success = []
-    errors = []
-
-    # 去重并保持原始顺序
     unique_codes = list(dict.fromkeys(codes))
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = pool.map(fetch_one, unique_codes)
+    url = (
+        "https://fundmobapi.eastmoney.com/"
+        "FundMNewApi/FundMNFInfo"
+    )
 
-        for result in results:
-            if "error" in result:
-                errors.append(result)
-            else:
-                success.append(result)
-
-    data_map = {
-        fund["code"]: fund
-        for fund in success
+    params = {
+        "pageIndex": 1,
+        "pageSize": max(len(unique_codes), 20),
+        "plat": "Android",
+        "appType": "ttjj",
+        "product": "EFund",
+        "Version": "1",
+        "deviceid": "github-actions-fund-notifier",
+        "Fcodes": ",".join(unique_codes),
     }
 
-    return data_map, errors
+    try:
+        response = session.get(
+            url,
+            params=params,
+            timeout=TIMEOUT,
+        )
+
+        response.raise_for_status()
+
+        content_type = response.headers.get("Content-Type", "")
+
+        logging.info(
+            "基金接口响应：status=%s，type=%s",
+            response.status_code,
+            content_type,
+        )
+
+        try:
+            result = response.json()
+        except ValueError as exc:
+            preview = response.text[:500].replace("\n", " ")
+
+            logging.error(
+                "基金接口返回非 JSON 内容：%r",
+                preview,
+            )
+
+            return {}, [
+                {
+                    "code": code,
+                    "error": f"接口返回非JSON内容: {exc}",
+                }
+                for code in unique_codes
+            ]
+
+        raw_funds = result.get("Datas")
+
+        if not isinstance(raw_funds, list):
+            logging.error(
+                "基金接口数据异常：%s",
+                result,
+            )
+
+            message = (
+                result.get("ErrMsg")
+                or result.get("ErrorMessage")
+                or result.get("Message")
+                or "接口未返回 Datas"
+            )
+
+            return {}, [
+                {
+                    "code": code,
+                    "error": str(message),
+                }
+                for code in unique_codes
+            ]
+
+        data_map = {}
+
+        for item in raw_funds:
+            code = str(
+                item.get("FCODE")
+                or item.get("CODE")
+                or ""
+            ).strip()
+
+            if not code:
+                continue
+
+            name = (
+                item.get("SHORTNAME")
+                or item.get("NAME")
+                or code
+            )
+
+            nav = (
+                item.get("NAV")
+                or item.get("DWJZ")
+                or item.get("UNITNAV")
+            )
+
+            change = (
+                item.get("NAVCHGRT")
+                or item.get("JZZZL")
+                or item.get("RZDF")
+            )
+
+            nav_date = (
+                item.get("PDATE")
+                or item.get("FSRQ")
+                or item.get("NAVDATE")
+                or ""
+            )
+
+            try:
+                change_value = (
+                    float(change)
+                    if change not in (None, "", "--")
+                    else 0.0
+                )
+            except (TypeError, ValueError):
+                logging.warning(
+                    "基金 %s 涨跌幅格式异常：%r",
+                    code,
+                    change,
+                )
+                change_value = 0.0
+
+            try:
+                nav_value = (
+                    float(nav)
+                    if nav not in (None, "", "--")
+                    else None
+                )
+            except (TypeError, ValueError):
+                logging.warning(
+                    "基金 %s 单位净值格式异常：%r",
+                    code,
+                    nav,
+                )
+                nav_value = None
+
+            data_map[code] = {
+                "code": code,
+                "name": name,
+                "nav": nav_value,
+                "change": change_value,
+                "date": nav_date,
+            }
+
+            logging.info(
+                "基金获取成功：%s %s，净值=%s，涨跌幅=%.2f%%，日期=%s",
+                code,
+                name,
+                nav_value if nav_value is not None else "--",
+                change_value,
+                nav_date or "--",
+            )
+
+        errors = []
+
+        for code in unique_codes:
+            if code not in data_map:
+                errors.append({
+                    "code": code,
+                    "error": "接口未返回该基金数据",
+                })
+
+        return data_map, errors
+
+    except requests.Timeout:
+        error_message = f"接口请求超时，timeout={TIMEOUT}s"
+        logging.error(error_message)
+
+    except requests.RequestException as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+        logging.error("基金接口请求失败：%s", error_message)
+
+    except Exception as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+        logging.exception("处理基金数据时发生异常：%s", exc)
+
+    return {}, [
+        {
+            "code": code,
+            "error": error_message,
+        }
+        for code in unique_codes
+    ]
 
 
 # ============================================================
@@ -369,10 +335,6 @@ def fetch_funds(codes):
 # ============================================================
 
 def fmt_change(value):
-    """
-    按国内基金习惯：
-    红色表示上涨，绿色表示下跌。
-    """
     if value > 0:
         return f"🔴 +{value:.2f}%"
 
@@ -382,38 +344,45 @@ def fmt_change(value):
     return f"⚪ {value:.2f}%"
 
 
+def fmt_nav(value):
+    if value is None:
+        return "--"
+
+    return f"{value:.4f}"
+
+
 def fmt_table(title, funds):
-    """
-    将基金列表格式化为 Markdown 表格。
-    """
     rows = sorted(
         funds,
-        key=lambda item: item["gszzl"],
+        key=lambda item: item["change"],
         reverse=True,
     )
 
     lines = [
         f"### {title}",
         "",
-        "| 名称 | 代码 | 估算涨跌幅 |",
-        "|---|---|---:|",
+        "| 名称 | 代码 | 单位净值 | 日涨跌幅 | 净值日期 |",
+        "|---|---|---:|---:|---|",
     ]
 
     for fund in rows:
         lines.append(
             f"| **{fund['name']}** "
             f"| `{fund['code']}` "
-            f"| {fmt_change(fund['gszzl'])} |"
+            f"| {fmt_nav(fund['nav'])} "
+            f"| {fmt_change(fund['change'])} "
+            f"| {fund['date'] or '--'} |"
         )
 
     return "\n".join(lines)
 
 
 def build_content(data_map, errors):
-    """
-    生成最终推送内容。
-    """
     parts = []
+
+    parts.append(
+        "> 数据为基金公司最新公布净值，不是盘中实时估值。"
+    )
 
     for category, codes in FUNDS.items():
         items = [
@@ -440,26 +409,25 @@ def build_content(data_map, errors):
 
         parts.append("\n".join(error_lines))
 
-    if not parts:
-        return "**未获取到任何基金数据。**"
+    if len(parts) == 1:
+        parts.append("**未获取到任何基金数据。**")
 
     return "\n\n".join(parts)
 
 
-def build_push_title(success_count, error_count):
-    """
-    根据获取结果生成更准确的推送标题。
-    """
+def build_title(success_count, error_count):
+    today = datetime.now().strftime("%m-%d")
+
     if success_count == 0:
-        return "基金估值获取失败"
+        return f"基金净值获取失败｜{today}"
 
     if error_count > 0:
         return (
-            f"基金每日估值："
-            f"{success_count}只成功，{error_count}只失败"
+            f"基金净值｜{today}｜"
+            f"{success_count}成功 {error_count}失败"
         )
 
-    return f"基金每日估值：{success_count}只"
+    return f"基金每日净值｜{today}"
 
 
 # ============================================================
@@ -500,7 +468,10 @@ def main():
     print(content)
     print()
 
-    # server_key = os.environ.get("SERVER_KEY", "").strip()
+    # server_key = os.environ.get(
+    #     "SERVER_KEY",
+    #     "",
+    # ).strip()
 
     # if not server_key:
     #     logging.info(
@@ -508,9 +479,9 @@ def main():
     #     )
     #     return
 
-    # title = build_push_title(
-    #     success_count=success_count,
-    #     error_count=error_count,
+    # title = build_title(
+    #     success_count,
+    #     error_count,
     # )
 
     # result = push(
@@ -527,10 +498,13 @@ def main():
     #     )
     # else:
     #     logging.error(
-    #         "推送失败，Server酱返回: %s",
+    #         "推送失败，Server酱返回：%s",
     #         result,
     #     )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        session.close()
